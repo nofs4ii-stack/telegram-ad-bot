@@ -18,8 +18,10 @@ export default function HomePage() {
       if (error) {
         console.error('Error fetching ads:', error);
       } else {
+        console.log('Fetched ads:', data);
         setAds(data || []);
       }
+      console.log('Supabase response:', { data, error });
       setLoading(false);
     }
 
