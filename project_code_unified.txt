@@ -1,0 +1,1001 @@
+================================================================================
+                        ملف الأكواد الموحد للمشروع
+                         /Users/mamdo/kimi/project_code_unified.txt
+================================================================================
+
+================================================================================
+[الملف 1] main.py
+[المسار] /Users/mamdo/kimi/main.py
+[الوصف] نقطة الدخول الرئيسية للتطبيق (Python) - تطبيق تليجرام آمن مع اتصال Supabase
+================================================================================
+
+================================================================================
+[الملف 2] db_client.py
+[المسار] /Users/mamdo/kimi/db_client.py
+[الوصف] ملف عميل قاعدة البيانات - التحقق من اتصال Supabase
+================================================================================
+import os
+import logging
+from dotenv import load_dotenv
+from supabase import create_client, Client
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+# 1. تحميل متغيرات البيئة من ملف .env للحماية
+load_dotenv()
+
+TOKEN = os.getenv("BOT_TOKEN")
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://telegram-ad-bot-xi.vercel.app")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# إعداد السجلات (Logging)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# 2. إنشاء اتصال آمن مع Supabase
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# 3. دالة حفظ/تحديث المستخدم في Supabase
+def sync_user_to_supabase(user):
+    if not supabase:
+        return
+    try:
+        data = {
+            "telegram_id": user.id,
+            "first_name": user.first_name,
+            "username": user.username,
+        }
+        # حفظ أو تحديث بيانات المستخدم في جدول users
+        supabase.table("users").upsert(data, on_conflict="telegram_id").execute()
+    except Exception as e:
+        logging.error(f"خطأ في حفظ المستخدم في Supabase: {e}")
+
+# 4. أمر /start المعالج
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
+    # حفظ بيانات المستخدم فوراً في Supabase
+    sync_user_to_supabase(user)
+
+    # أزرار الـ WebApp الموجهة للمسارات المناسبة
+    keyboard = [
+        [InlineKeyboardButton("📝 نشر إعلان جديد", web_app=WebAppInfo(url=f"{WEB_APP_URL}/post"))],
+        [InlineKeyboardButton("📋 إعلاناتي", web_app=WebAppInfo(url=f"{WEB_APP_URL}/myads"))],
+        [InlineKeyboardButton("👀 مشاهدة الإعلانات", web_app=WebAppInfo(url=f"{WEB_APP_URL}/ads"))],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        f"👋 أهلاً بك يا {user.first_name} في منصة الإعلانات!\n\n"
+        "📌 يمكنك استخدام الأزرار أدناه لتصفح المنصة وإدارة إعلاناتك:",
+        reply_markup=reply_markup
+    )
+
+# 5. تشغيل التطبيق
+def main():
+    if not TOKEN:
+        raise ValueError("⚠️ لم يتم العثور على BOT_TOKEN في ملف .env")
+
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    
+    print("✅ البوت الآمن يعمل الآن والمزامن مع Supabase جاهز...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()import os
+from dotenv import load_dotenv
+from supabase import create_client, Client
+import logging
+
+# Load environment variables from .env if it exists
+load_dotenv()
+
+# Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+# Initialize client
+try:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise ValueError("Supabase environment variables not set.")
+    
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logging.info("Supabase client initialized.")
+except Exception as e:
+    logging.error(f"Failed to initialize Supabase client: {e}")
+    supabase = None
+
+def check_db_connection():
+    """
+    Tests reading from the 'ads' table to verify connection.
+    Returns True if successful, False otherwise.
+    """
+    if not supabase:
+        logging.error("Supabase client not available.")
+        return False
+
+    try:
+        # Perform a simple query (limit to 1 to minimize overhead)
+        response = supabase.table("ads").select("*").limit(1).execute()
+        logging.info("Supabase connection health check passed.")
+        return True
+    except Exception as e:
+        logging.error(f"Supabase connection health check failed: {e}")
+        return False
+from db_client import check_db_connection
+
+if __name__ == "__main__":
+    result = check_db_connection()
+    if result:
+        print("✅ تم الاتصال بقاعدة البيانات بنجاح!")
+    else:
+        print("❌ فشل الاتصال، تأكد من مفتاح SUPABASE_SERVICE_ROLE_KEY في ملف .env")import type { Metadata } from "next";
+import { supabase } from "@/lib/supabase";
+import { AdsList } from "@/components/AdsList";
+
+export const metadata: Metadata = {
+  title: "السوق - الإعلانات",
+  description: "تصفح أحدث الإعلانات في جميع الفئات",
+};
+
+export default async function HomePage() {
+  const { data: ads, error } = await supabase
+    .from("ads")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return (
+      <main className="min-h-[90vh] bg-gradient-to-b from-indigo-50 via-white to-white">
+        <div className="h-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-amber-400" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+          <div className="p-6 bg-red-50 border-l-4 border-red-400 text-red-800 rounded-lg">
+            <p className="font-medium">خطأ في تحميل الإعلانات: {error.message}</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-[90vh] bg-gradient-to-b from-indigo-50 via-white to-white">
+      {/* Top decorative element */}
+      <div className="h-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-amber-400" />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 space-y-10">
+        <header className="text-center space-y-3 max-w-2xl mx-auto">
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-700">السوق</span>
+            <span className="block text-2xl sm:text-3xl mt-2 text-gray-700">للإعلانات المعتمدة</span>
+          </h1>
+          <p className="text-lg text-gray-500 leading-relaxed">
+            اكتشف أحدث الإعلانات في مختلف الفئات. كل إعلان يمر بمراجعة قبل عرضه.
+          </p>
+        </header>
+
+        <AdsList initialAds={ads || []} />
+      </div>
+    </main>
+  );
+}import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">{children}</body>
+    </html>
+  );
+}
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+import type { Metadata } from "next";
+import { AdForm } from "@/components/AdForm";
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+
+export const metadata: Metadata = {
+  title: "نشر إعلان جديد",
+  description: "أنشئ إعلانك الآن وتواصل مع جمهور واسع",
+};
+
+export default function PostPage() {
+  async function handleSubmit(data: any) {
+    "use server";
+    const { error } = await supabase
+      .from("ads")
+      .insert({
+        title: data.title,
+        description: data.description,
+        price: data.price,
+        category: data.category,
+        image_url: data.image_url || null,
+        status: "pending",
+        user_id: data.user_id,
+      })
+      .select();
+    if (error) throw new Error(error.message);
+  }
+
+  return (
+    <main className="min-h-[90vh] bg-gradient-to-b from-indigo-50 via-white to-white">
+      {/* Decorative top bar */}
+      <div className="h-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-amber-400" />
+
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 sm:py-16 space-y-8">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"
+          >
+            <ArrowRight className="w-4 h-4 rotate-180" />
+            العودة للصفحة الرئيسية
+          </Link>
+        </div>
+
+        <header className="text-center space-y-3">
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight">
+            نشر <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-700">إعلان جديد</span>
+          </h1>
+          <p className="text-xl text-gray-500 max-w-xl mx-auto leading-relaxed">
+            املأ البيانات أدناه لنشر إعلانك في السوق. بعد المراجعة سيتم عرض إعلانك للجمهور.
+          </p>
+        </header>
+
+        <section className="bg-white rounded-2xl shadow-xl shadow-indigo-100/50 border border-gray-100 p-8 sm:p-10">
+          <AdForm onSubmit={handleSubmit} />
+        </section>
+      </div>
+    </main>
+  );
+}
+import React from 'react';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
+import { Tag } from 'lucide-react';
+import Image from 'next/image';
+
+export interface Ad {
+  id: string;
+  title: string;
+  description: string;
+  price?: number;
+  category?: string;
+  image_url?: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  created_at?: string;
+  user_id?: string;
+}
+
+const statusColors = {
+  approved: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  pending: 'bg-amber-100 text-amber-800 border-amber-200',
+  rejected: 'bg-red-100 text-red-800 border-red-200',
+};
+
+export const AdCard: React.FC<{
+  ad: Ad;
+  showActions?: boolean;
+  onEdit?: (ad: Ad) => void;
+  onDelete?: (ad: Ad) => void;
+}> = ({ ad, showActions = false, onEdit, onDelete }) => {
+  const status = ad.status || 'pending';
+
+  return (
+    <Card variant="elevated" className="group">
+      <div className="aspect-video relative mb-4 overflow-hidden rounded-lg bg-gray-100">
+        {ad.image_url ? (
+          <Image
+            src={ad.image_url}
+            alt={ad.title}
+            fill
+            className="object-cover transition-transform group-hover:scale-105"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+            لا توجد صورة
+          </div>
+        )}
+        <span
+          className={`absolute top-3 left-3 px-2.5 py-1 text-xs font-semibold rounded-full border ${statusColors[status]}`}
+        >
+          {status === 'approved' && 'موافق عليه'}
+          {status === 'pending' && 'قيد المراجعة'}
+          {status === 'rejected' && 'مرفوض'}
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-xl font-bold text-gray-900 flex-1">{ad.title}</h3>
+          {ad.price && (
+            <span className="whitespace-nowrap text-2xl font-bold text-indigo-700">
+              {ad.price.toLocaleString('ar-EG')} جنيه
+            </span>
+          )}
+        </div>
+
+        <p className="text-gray-600 text-sm leading-relaxed line-clamp-3">
+          {ad.description || 'بدون وصف'}
+        </p>
+
+        {ad.category && (
+          <div className="flex items-center gap-2">
+            <Tag className="w-4 h-4 text-indigo-600" />
+            <span className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 rounded-lg">
+              {ad.category}
+            </span>
+          </div>
+        )}
+
+        {showActions && (
+          <div className="flex gap-2 pt-2 opacity-100 md:group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => onEdit?.(ad)}
+            >
+              تعديل
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="flex-1 hover:bg-red-50 hover:text-red-700"
+              onClick={() => onDelete?.(ad)}
+            >
+              حذف
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+};"use client";
+
+import React, { useState } from 'react';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { Textarea } from './ui/Textarea';
+import { Select } from './ui/Select';
+import { supabase } from '@/lib/supabase';
+
+const CATEGORIES = [
+  'عقارات',
+  'سيارات',
+  'إلكترونيات',
+  'ملابس',
+  'خدمات',
+  'وظائف',
+  'أخرى',
+];
+
+export const AdForm: React.FC<{
+  onSubmit: (data: Omit<any, 'id' | 'created_at' | 'user_id'>) => Promise<void>;
+}> = ({ onSubmit }) => {
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    category: CATEGORIES[0],
+    image_url: '',
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.title.trim()) newErrors.title = 'العنوان مطلوب';
+    if (!formData.description.trim()) newErrors.description = 'الوصف مطلوب';
+    if (formData.price && (isNaN(Number(formData.price)) || Number(formData.price) <= 0)) {
+      newErrors.price = 'السعر يجب أن يكون رقمًا موجبًا';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) return;
+    setIsSubmitting(true);
+    setSuccessMessage(null);
+
+    try {
+      const formDataNumber = {
+        ...formData,
+        price: formData.price ? Number(formData.price) : undefined,
+      };
+
+      // Determine user_id from auth (for now, using a mock user)
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || 'mock-user-id';
+
+      await onSubmit({
+        ...formDataNumber,
+        user_id: userId,
+        status: 'pending', // New ads start as pending for review
+      });
+
+      setSuccessMessage('تم إرسال الإعلان بنجاح! تحت المراجعة.');
+      setFormData({
+        title: '',
+        description: '',
+        price: '',
+        category: CATEGORIES[0],
+        image_url: '',
+      });
+    } catch (error: any) {
+      console.error('Error submitting ad:', error);
+      setErrors({ submit: error.message || 'فشل الإرسال. يرجى المحاولة مرة أخرى.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-900">إنشاء إعلان جديد</h2>
+      <p className="text-gray-600 max-w-md">املأ البيانات لنشر إعلانك في السوق</p>
+
+      {successMessage && (
+        <div className="p-4 bg-emerald-50 border-l-4 border-emerald-400 text-emerald-700">
+          {successMessage}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <Input
+          name="title"
+          value={formData.title}
+          onChange={handleChange}
+          placeholder="أدخل عنوان الإعلان"
+          error={errors.title}
+          label="العنوان"
+          helperText="حد أقصى 100 حرف"
+        />
+
+        <Textarea
+          name="description"
+          value={formData.description}
+          onChange={handleChange}
+          placeholder="صف الإعلان بالتفصيل"
+          rows={4}
+          error={errors.description}
+          label="الوصف"
+          helperText="وصف واضح ومفصل يجلب المزيد من المشاهدات"
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            name="price"
+            type="number"
+            value={formData.price}
+            onChange={handleChange}
+            placeholder="0.00"
+            error={errors.price}
+            label="السعر (اختياري)"
+            helperText="بدون رموز أو فواصل"
+          />
+
+          <Select
+            name="category"
+            value={formData.category}
+            onChange={handleChange}
+            label="الفئة"
+            className=""
+          />
+        </div>
+
+        <Input
+          name="image_url"
+          value={formData.image_url}
+          onChange={handleChange}
+          placeholder="https://example.com/image.jpg"
+          label="رابط الصورة (اختياري)"
+          helperText="الرابط المباشر لصورة الإعلان (يبدأ بـ http أو https)"
+        />
+      </div>
+
+      <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => setFormData({
+            title: '',
+            description: '',
+            price: '',
+            category: CATEGORIES[0],
+            image_url: '',
+          })}
+        >
+          مسح النموذج
+        </Button>
+        <Button
+          variant="primary"
+          size="lg"
+          disabled={isSubmitting}
+          type="submit"
+        >
+          {isSubmitting ? 'جاري الإرسال...' : 'نشر الإعلان'}
+        </Button>
+      </div>
+    </form>
+  );
+};"use client";
+
+import { useMemo, useState } from "react";
+import { AdCard, Ad } from "./AdCard";
+
+export const AdsList: React.FC<{
+  initialAds: Ad[];
+}> = ({ initialAds }) => {
+  const [filter, setFilter] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    if (filter === "all") return initialAds;
+    return initialAds.filter((ad) => (ad.status || "pending") === filter);
+  }, [initialAds, filter]);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex-1 min-w-[200px] flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">
+            الإعلانات
+            <span className="ml-2 text-sm font-medium text-indigo-600">
+              ({filtered.length})
+            </span>
+          </h2>
+          <a
+            href="/post"
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-br from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg transition-all duration-300 rounded-xl"
+          >
+            <span>نشر إعلان جديد</span>
+          </a>
+        </div>
+
+        <div className="relative">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="px-4 py-3 text-sm rounded-xl border-2 border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 shadow-sm"
+          >
+            <option value="all">جميع الحالات</option>
+            <option value="approved">موافق عليه فقط</option>
+            <option value="pending">قيد المراجعة</option>
+            <option value="rejected">مرفوض</option>
+          </select>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <p className="text-2xl text-gray-400 mb-4">لا توجد إعلانات لعرضها</p>
+          <a href="/post" className="inline-flex items-center gap-2 text-indigo-600 font-medium hover:underline">
+            حاول نشر إعلان جديد
+          </a>
+        </div>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filtered.map((ad: Ad) => (
+            <AdCard key={ad.id} ad={ad} showActions={false} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};import { useState } from "react";
+
+export const FilterBar: React.FC<{
+  filter: string;
+  onFilterChange: (value: string) => void;
+}> = ({ filter, onFilterChange }) => {
+  const options = [
+    { value: "all", label: "جميع الحالات" },
+    { value: "approved", label: "موافق عليه فقط" },
+    { value: "pending", label: "قيد المراجعة" },
+    { value: "rejected", label: "مرفوض" },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex-1 min-w-0">
+        <h2 className="text-2xl font-bold text-gray-900">
+          السوق
+          <span className="ml-2 text-sm font-medium text-indigo-600">
+            للإعلانات
+          </span>
+        </h2>
+      </div>
+
+      <div className="relative w-[200px]">
+        <select
+          value={filter}
+          onChange={(e) => onFilterChange(e.target.value)}
+          className="w-full px-4 py-3 text-sm rounded-xl border-2 border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200 shadow-sm"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <a
+        href="/post"
+        className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-white bg-gradient-to-br from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg hover:shadow-xl transition-all duration-300 rounded-xl"
+      >
+        <span className="w-4 h-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </span>
+        <span>نشر إعلان جديد</span>
+      </a>
+    </div>
+  );
+};import React from 'react';
+
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+}
+
+export const Button: React.FC<ButtonProps> = ({
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  children,
+  ...props
+}) => {
+  const base = 'inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed';
+  const variants = {
+    primary: 'bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 focus:ring-indigo-500',
+    secondary: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus:ring-emerald-300',
+    outline: 'border-2 border-indigo-100 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-50 focus:ring-indigo-200',
+    ghost: 'text-gray-500 hover:text-gray-800 hover:bg-gray-50 focus:ring-gray-200',
+  };
+  const sizes = {
+    sm: 'px-3.5 py-1.5 text-xs gap-1.5',
+    md: 'px-5 py-2.5 text-sm gap-2',
+    lg: 'px-7 py-3.5 text-base gap-2.5',
+  };
+
+  return (
+    <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>
+      {children}
+    </button>
+  );
+};
+import React from 'react';
+
+interface CardProps {
+  title?: string;
+  children: React.ReactNode;
+  className?: string;
+  variant?: 'default' | 'elevated' | 'outlined';
+}
+
+export const Card: React.FC<CardProps> = ({
+  title,
+  children,
+  className = '',
+  variant = 'default',
+}) => {
+  const base = 'rounded-xl overflow-hidden shadow-sm transition-shadow hover:shadow-md';
+  const variantStyles = {
+    default: 'bg-white p-6',
+    elevated: 'bg-white p-6 shadow-lg',
+    outlined: 'border border-gray-200 bg-gray-50 p-6',
+  };
+
+  return (
+    <div className={`${base} ${variantStyles[variant]} ${className}`}>
+      {title && (
+        <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+          <h2 className="text-xl font-semibold">{title}</h2>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+};import React from 'react';
+
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string;
+  error?: string;
+  helperText?: string;
+}
+
+export const Input: React.FC<InputProps> = ({
+  label,
+  error,
+  helperText,
+  className = '',
+  ...props
+}) => {
+  return (
+    <div className="flex flex-col gap-2">
+      {label && (
+        <label className="text-sm font-semibold text-gray-800">
+          {label}
+        </label>
+      )}
+      <input
+        className={`w-full px-4 py-3 text-base border-2 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${error ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-indigo-300'} ${className}`}
+        {...props}
+      />
+      {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+      {helperText && !error && <p className="text-sm text-gray-500">{helperText}</p>}
+    </div>
+  );
+};
+import React from 'react';
+
+interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string;
+  error?: string;
+  helperText?: string;
+  options?: Array<{ value: string; label: string }>;
+}
+
+export const Select: React.FC<SelectProps> = ({
+  label,
+  error,
+  helperText,
+  options,
+  className = '',
+  children,
+  ...props
+}) => {
+  return (
+    <div className="flex flex-col gap-2">
+      {label && (
+        <label className="text-sm font-semibold text-gray-800">
+          {label}
+        </label>
+      )}
+      <select
+        className={`w-full px-4 py-3 text-base border-2 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${error ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-indigo-300'} ${className}`}
+        {...props}
+      >
+        {options ? options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        )) : children}
+      </select>
+      {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+      {helperText && !error && <p className="text-sm text-gray-500">{helperText}</p>}
+    </div>
+  );
+};import React from 'react';
+
+interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string;
+  error?: string;
+  helperText?: string;
+  rows?: number;
+}
+
+export const Textarea: React.FC<TextareaProps> = ({
+  label,
+  error,
+  helperText,
+  rows = 4,
+  className = '',
+  ...props
+}) => {
+  return (
+    <div className="flex flex-col gap-2">
+      {label && (
+        <label className="text-sm font-semibold text-gray-800">
+          {label}
+        </label>
+      )}
+      <textarea
+        rows={rows}
+        className={`w-full px-4 py-3 text-base border-2 rounded-xl resize-y min-h-[100px] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${error ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-indigo-300'} ${className}`}
+        {...props}
+      />
+      {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+      {helperText && !error && <p className="text-sm text-gray-500">{helperText}</p>}
+    </div>
+  );
+};
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "lucide-react": "^1.34.0",
+    "next": "^16.3.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "autoprefixer": "^10.5.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.3",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
+  },
+  "description": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+
+================================================================================
+                         نهاية الملف - تم جمع جميع الأكواد
+================================================================================
+
+📥 مسار الملف: /Users/mamdo/kimi/project_code_unified.txt
+📁 حجم الملف:  32K
+
+📋 محتويات الملف:
+- main.py (بوت التليجرام)
+- db_client.py (عميل قاعدة البيانات)
+- test_db.py (اختبار القاعدة)
+- web/app/page.tsx (الصفحة الرئيسية - عرض الإعلانات)
+- web/app/layout.tsx (التخطيط)
+- web/app/globals.css (الأنماط)
+- web/app/post/page.tsx (صفحة إنشاء إعلان)
+- web/components/AdCard.tsx (بطاقة الإعلان)
+- web/components/AdForm.tsx (نموذج الإعلان)
+- web/components/AdsList.tsx (قائمة الإعلانات)
+- web/components/FilterBar.tsx (التصفية)
+- web/components/ui/*.tsx (مكونات واجهة المستخدم)
+- web/lib/supabase.ts (اتصال Supabase)
+- web/next.config.ts
+- web/tsconfig.json
+- web/package.json
+- web/postcss.config.mjs
+- web/eslint.config.mjs
+
+💡 طريقة التحميل: يمكنك فتح الملف مباشرة عبر المسار أعلاه أو نسخ محتوياته.
+
